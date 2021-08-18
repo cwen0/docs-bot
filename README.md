@@ -1,1 +1,3 @@
-# docsbot
+# docsbot 
+
+A GitHub Bot
