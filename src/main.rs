@@ -20,7 +20,7 @@ async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Bod
     let (req, body_stream) = req.into_parts();
 
     match (req.method, req.uri.path()) {
-        (Method::POST, "/webhook") => {
+        (Method::POST, "/github-hook") => {
             let event = if let Some(ev) = req.headers.get("X-GitHub-Event") {
                 let ev = match ev.to_str().ok() {
                     Some(v) => v,
@@ -66,7 +66,7 @@ async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Bod
 
             match webhook::webhook(event, payload, &ctx).await {
                 Ok(true) => Ok(Response::new(Body::from("processed request"))),
-                Ok(false) => Ok(Response::new(Body::from("processed request"))),
+                Ok(false) => Ok(Response::new(Body::from("ignored request"))),
                 Err(err) => {
                     log::error!("request failed: {:?}", err);
                     Ok(Response::builder()

@@ -1,7 +1,8 @@
+#![allow(clippy::new_without_default)]
+
 use std::fmt;
 use crate::handlers;
 use crate::github;
-use crate::interactions::ErrorComment;
 use anyhow::Context;
 
 #[derive(Debug)]
@@ -80,11 +81,12 @@ pub async fn webhook(
 ) -> Result<bool, WebhookError> {
     let event = match event {
         EventName::PullRequest => {
-            let payload = deserialize_payload::<github::IssuesEvent>(&payload)
+            // log::info!("payload={:?}", &payload);
+            let payload = deserialize_payload::<github::PullRequestEvent>(&payload)
                 .with_context(|| format!("{:?} failed to deserialize", event))
                 .map_err(anyhow::Error::from)?;
 
-            github::Event::Issue(payload)
+            github::Event::PullRequest(payload)
         }
         _ => {
             return Ok(false);
@@ -110,12 +112,6 @@ pub async fn webhook(
         }
     }
 
-    if !message.is_empty() {
-        if let Some(issue) = event.issue() {
-            let cmnt = ErrorComment::new(issue, message);
-            cmnt.post(&ctx.github).await?;
-        }
-    }
     if other_error {
         Err(WebhookError(anyhow::anyhow!(
             "handling failed, error logged",

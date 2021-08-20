@@ -1,17 +1,13 @@
-use crate::github::{Event, IssuesAction};
+use crate::github::{Event, PullRequestAction};
 use crate::handlers::Context;
 
 pub async fn handle(_ctx: &Context, event: &Event) -> anyhow::Result<()>{
-    let event = if let Event::Issue(e) = event{
-        if !e.issue.is_pr() {
-            log::debug!("skipping event, event {:?} was an issue", e.issue.number);
-            return Ok(());
-        }
-        if !matches!(e.action, IssuesAction::Closed) {
+    let event = if let Event::PullRequest(e) = event{
+        if !matches!(e.action, PullRequestAction::Closed) {
             log::debug!("skipping event, pr was {:?}", e.action);
             return Ok(());
         }
-        if !e.issue.merged {
+        if !e.pull_request.merged {
             log::debug!("skipping event, pr was not merged");
             return Ok(());
         }
@@ -20,7 +16,7 @@ pub async fn handle(_ctx: &Context, event: &Event) -> anyhow::Result<()>{
         return Ok(());
     };
 
-    let labels = event.issue.labels();
+    let labels = event.pull_request.labels();
 
     for label in labels.iter() {
         log::info!("label: {:?}", label.name)

@@ -1,8 +1,7 @@
-/// POST from https://github.com/rust-lang/triagebot/blob/master/src/github.rs
-use anyhow::Context;
+#![allow(unused)]
 
+use anyhow::Context;
 use chrono::{DateTime, FixedOffset, Utc};
-use futures::stream::{FuturesUnordered, StreamExt};
 use futures::{future::BoxFuture, FutureExt};
 use hyper::header::HeaderValue;
 use once_cell::sync::OnceCell;
@@ -175,48 +174,7 @@ impl User {
     pub async fn current(client: &GithubClient) -> anyhow::Result<Self> {
         client.json(client.get("https://api.github.com/user")).await
     }
-
-    // pub async fn is_team_member<'a>(&'a self, client: &'a GithubClient) -> anyhow::Result<bool> {
-    //     log::trace!("Getting team membership for {:?}", self.login);
-    //     let permission = crate::team_data::teams(client).await?;
-    //     let map = permission.teams;
-    //     let is_triager = map
-    //         .get("wg-triage")
-    //         .map_or(false, |w| w.members.iter().any(|g| g.github == self.login));
-    //     let is_pri_member = map
-    //         .get("wg-prioritization")
-    //         .map_or(false, |w| w.members.iter().any(|g| g.github == self.login));
-    //     let in_all = map["all"].members.iter().any(|g| g.github == self.login);
-    //     log::trace!(
-    //         "{:?} is all?={:?}, triager?={:?}, prioritizer?={:?}",
-    //         self.login,
-    //         in_all,
-    //         is_triager,
-    //         is_pri_member
-    //     );
-    //     Ok(in_all || is_triager || is_pri_member)
-    // }
-
-    // // Returns the ID of the given user, if the user is in the `all` team.
-    // pub async fn get_id<'a>(&'a self, client: &'a GithubClient) -> anyhow::Result<Option<usize>> {
-    //     let permission = crate::team_data::teams(client).await?;
-    //     let map = permission.teams;
-    //     Ok(map["all"]
-    //         .members
-    //         .iter()
-    //         .find(|g| g.github == self.login)
-    //         .map(|u| u.github_id))
-    // }
 }
-
-// pub async fn get_team(
-//     client: &GithubClient,
-//     team: &str,
-// ) -> anyhow::Result<Option<rust_team_data::v1::Team>> {
-//     let permission = crate::team_data::teams(client).await?;
-//     let mut map = permission.teams;
-//     Ok(map.swap_remove(team))
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone, serde::Deserialize)]
 pub struct Label {
@@ -236,14 +194,9 @@ impl Label {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct PullRequestDetails {
-    // none for now
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct Issue {
+pub struct PullRequest {
     pub number: u64,
-    pub body: String,
+    pub body: Option<String>,
     created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
     #[serde(default)]
@@ -253,37 +206,12 @@ pub struct Issue {
     pub user: User,
     pub labels: Vec<Label>,
     pub assignees: Vec<User>,
-    pub pull_request: Option<PullRequestDetails>,
     #[serde(default)]
     pub merged: bool,
     // API URL
     comments_url: String,
     #[serde(skip)]
-    repository: OnceCell<IssueRepository>,
-}
-
-/// Contains only the parts of `Issue` that are needed for turning the issue title into a Zulip
-/// topic.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ZulipGitHubReference {
-    pub number: u64,
-    pub title: String,
-    pub repository: IssueRepository,
-}
-
-impl ZulipGitHubReference {
-    pub fn zulip_topic_reference(&self) -> String {
-        let repo = &self.repository;
-        if repo.organization == "rust-lang" {
-            if repo.repository == "rust" {
-                format!("#{}", self.number)
-            } else {
-                format!("{}#{}", repo.repository, self.number)
-            }
-        } else {
-            format!("{}/{}#{}", repo.organization, repo.repository, self.number)
-        }
-    }
+    repository: OnceCell<PullRequestRepository>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -344,18 +272,18 @@ impl fmt::Display for AssignmentError {
 impl std::error::Error for AssignmentError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueRepository {
+pub struct PullRequestRepository {
     pub organization: String,
     pub repository: String,
 }
 
-impl fmt::Display for IssueRepository {
+impl fmt::Display for PullRequestRepository {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}/{}", self.organization, self.repository)
     }
 }
 
-impl IssueRepository {
+impl PullRequestRepository {
     fn url(&self) -> String {
         format!(
             "https://api.github.com/repos/{}/{}",
@@ -364,284 +292,9 @@ impl IssueRepository {
     }
 }
 
-impl Issue {
-    pub fn to_zulip_github_reference(&self) -> ZulipGitHubReference {
-        ZulipGitHubReference {
-            number: self.number,
-            title: self.title.clone(),
-            repository: self.repository().clone(),
-        }
-    }
-
-    pub fn repository(&self) -> &IssueRepository {
-        self.repository.get_or_init(|| {
-            // https://api.github.com/repos/rust-lang/rust/issues/69257/comments
-            log::trace!("get repository for {}", self.comments_url);
-            let url = url::Url::parse(&self.comments_url).unwrap();
-            let mut segments = url.path_segments().unwrap();
-            let _comments = segments.next_back().unwrap();
-            let _number = segments.next_back().unwrap();
-            let _issues_or_prs = segments.next_back().unwrap();
-            let repository = segments.next_back().unwrap();
-            let organization = segments.next_back().unwrap();
-            IssueRepository {
-                organization: organization.into(),
-                repository: repository.into(),
-            }
-        })
-    }
-
-    pub fn global_id(&self) -> String {
-        format!("{}#{}", self.repository(), self.number)
-    }
-
-    pub fn is_pr(&self) -> bool {
-        self.pull_request.is_some()
-    }
-
-    pub async fn get_comment(&self, client: &GithubClient, id: usize) -> anyhow::Result<Comment> {
-        let comment_url = format!("{}/issues/comments/{}", self.repository().url(), id);
-        let comment = client.json(client.get(&comment_url)).await?;
-        Ok(comment)
-    }
-
-    pub async fn edit_body(&self, client: &GithubClient, body: &str) -> anyhow::Result<()> {
-        let edit_url = format!("{}/issues/{}", self.repository().url(), self.number);
-        #[derive(serde::Serialize)]
-        struct ChangedIssue<'a> {
-            body: &'a str,
-        }
-        client
-            ._send_req(client.patch(&edit_url).json(&ChangedIssue { body }))
-            .await
-            .context("failed to edit issue body")?;
-        Ok(())
-    }
-
-    pub async fn edit_comment(
-        &self,
-        client: &GithubClient,
-        id: usize,
-        new_body: &str,
-    ) -> anyhow::Result<()> {
-        let comment_url = format!("{}/issues/comments/{}", self.repository().url(), id);
-        #[derive(serde::Serialize)]
-        struct NewComment<'a> {
-            body: &'a str,
-        }
-        client
-            ._send_req(
-                client
-                    .patch(&comment_url)
-                    .json(&NewComment { body: new_body }),
-            )
-            .await
-            .context("failed to edit comment")?;
-        Ok(())
-    }
-
-    pub async fn post_comment(&self, client: &GithubClient, body: &str) -> anyhow::Result<()> {
-        #[derive(serde::Serialize)]
-        struct PostComment<'a> {
-            body: &'a str,
-        }
-        client
-            ._send_req(client.post(&self.comments_url).json(&PostComment { body }))
-            .await
-            .context("failed to post comment")?;
-        Ok(())
-    }
-
-    pub async fn set_labels(
-        &self,
-        client: &GithubClient,
-        labels: Vec<Label>,
-    ) -> anyhow::Result<()> {
-        log::info!("set_labels {} to {:?}", self.global_id(), labels);
-        // PUT /repos/:owner/:repo/issues/:number/labels
-        // repo_url = https://api.github.com/repos/Codertocat/Hello-World
-        let url = format!(
-            "{repo_url}/issues/{number}/labels",
-            repo_url = self.repository().url(),
-            number = self.number
-        );
-
-        let mut stream = labels
-            .into_iter()
-            .map(|label| async { (label.exists(&self.repository().url(), &client).await, label) })
-            .collect::<FuturesUnordered<_>>();
-        let mut labels = Vec::new();
-        while let Some((true, label)) = stream.next().await {
-            labels.push(label);
-        }
-
-        #[derive(serde::Serialize)]
-        struct LabelsReq {
-            labels: Vec<String>,
-        }
-        client
-            ._send_req(client.put(&url).json(&LabelsReq {
-                labels: labels.iter().map(|l| l.name.clone()).collect(),
-            }))
-            .await
-            .context("failed to set labels")?;
-
-        Ok(())
-    }
-
+impl PullRequest {
     pub fn labels(&self) -> &[Label] {
         &self.labels
-    }
-
-    pub fn contain_assignee(&self, user: &str) -> bool {
-        self.assignees.iter().any(|a| a.login == user)
-    }
-
-    pub async fn remove_assignees(
-        &self,
-        client: &GithubClient,
-        selection: Selection<'_, str>,
-    ) -> Result<(), AssignmentError> {
-        log::info!("remove {:?} assignees for {}", selection, self.global_id());
-        let url = format!(
-            "{repo_url}/issues/{number}/assignees",
-            repo_url = self.repository().url(),
-            number = self.number
-        );
-
-        let assignees = match selection {
-            Selection::All => self
-                .assignees
-                .iter()
-                .map(|u| u.login.as_str())
-                .collect::<Vec<_>>(),
-            Selection::One(user) => vec![user],
-            Selection::Except(user) => self
-                .assignees
-                .iter()
-                .map(|u| u.login.as_str())
-                .filter(|&u| u != user)
-                .collect::<Vec<_>>(),
-        };
-
-        #[derive(serde::Serialize)]
-        struct AssigneeReq<'a> {
-            assignees: &'a [&'a str],
-        }
-        client
-            ._send_req(client.delete(&url).json(&AssigneeReq {
-                assignees: &assignees[..],
-            }))
-            .await
-            .map_err(AssignmentError::Http)?;
-        Ok(())
-    }
-
-    pub async fn add_assignee(
-        &self,
-        client: &GithubClient,
-        user: &str,
-    ) -> Result<(), AssignmentError> {
-        log::info!("add_assignee {} for {}", user, self.global_id());
-        let url = format!(
-            "{repo_url}/issues/{number}/assignees",
-            repo_url = self.repository().url(),
-            number = self.number
-        );
-
-        #[derive(serde::Serialize)]
-        struct AssigneeReq<'a> {
-            assignees: &'a [&'a str],
-        }
-
-        let result: Issue = client
-            .json(client.post(&url).json(&AssigneeReq { assignees: &[user] }))
-            .await
-            .map_err(AssignmentError::Http)?;
-        // Invalid assignees are silently ignored. We can just check if the user is now
-        // contained in the assignees list.
-        let success = result.assignees.iter().any(|u| u.login.as_str() == user);
-
-        if success {
-            Ok(())
-        } else {
-            Err(AssignmentError::InvalidAssignee)
-        }
-    }
-
-    pub async fn set_assignee(
-        &self,
-        client: &GithubClient,
-        user: &str,
-    ) -> Result<(), AssignmentError> {
-        log::info!("set_assignee for {} to {}", self.global_id(), user);
-        self.add_assignee(client, user).await?;
-        self.remove_assignees(client, Selection::Except(user))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn set_milestone(&self, client: &GithubClient, title: &str) -> anyhow::Result<()> {
-        log::trace!(
-            "Setting milestone for rust-lang/rust#{} to {}",
-            self.number,
-            title
-        );
-
-        let create_url = format!("{}/milestones", self.repository().url());
-        let resp = client
-            .send_req(
-                client
-                    .post(&create_url)
-                    .body(serde_json::to_vec(&MilestoneCreateBody { title }).unwrap()),
-            )
-            .await;
-        // Explicitly do *not* try to return Err(...) if this fails -- that's
-        // fine, it just means the milestone was already created.
-        log::trace!("Created milestone: {:?}", resp);
-
-        let list_url = format!("{}/milestones", self.repository().url());
-        let milestone_list: Vec<Milestone> = client.json(client.get(&list_url)).await?;
-        let milestone_no = if let Some(milestone) = milestone_list.iter().find(|v| v.title == title)
-        {
-            milestone.number
-        } else {
-            anyhow::bail!(
-                "Despite just creating milestone {} on {}, it does not exist?",
-                title,
-                self.repository()
-            )
-        };
-
-        #[derive(serde::Serialize)]
-        struct SetMilestone {
-            milestone: u64,
-        }
-        let url = format!("{}/issues/{}", self.repository().url(), self.number);
-        client
-            ._send_req(client.patch(&url).json(&SetMilestone {
-                milestone: milestone_no,
-            }))
-            .await
-            .context("failed to set milestone")?;
-        Ok(())
-    }
-
-    pub async fn close(&self, client: &GithubClient) -> anyhow::Result<()> {
-        let edit_url = format!("{}/issues/{}", self.repository().url(), self.number);
-        #[derive(serde::Serialize)]
-        struct CloseIssue<'a> {
-            state: &'a str,
-        }
-        client
-            ._send_req(
-                client
-                    .patch(&edit_url)
-                    .json(&CloseIssue { state: "closed" }),
-            )
-            .await
-            .context("failed to close issue")?;
-        Ok(())
     }
 }
 
@@ -678,7 +331,7 @@ pub enum PullRequestReviewAction {
 #[derive(Debug, serde::Deserialize)]
 pub struct PullRequestReviewEvent {
     pub action: PullRequestReviewAction,
-    pub pull_request: Issue,
+    pub pull_request: PullRequest,
     pub review: Comment,
     pub changes: Option<Changes>,
     pub repository: Repository,
@@ -686,34 +339,33 @@ pub struct PullRequestReviewEvent {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PullRequestReviewComment {
-    pub action: IssueCommentAction,
+    pub action: PullRequestCommentAction,
     pub changes: Option<Changes>,
-    #[serde(rename = "pull_request")]
-    pub issue: Issue,
+    pub pull_request: PullRequest,
     pub comment: Comment,
     pub repository: Repository,
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum IssueCommentAction {
+pub enum PullRequestCommentAction {
     Created,
     Edited,
     Deleted,
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct IssueCommentEvent {
-    pub action: IssueCommentAction,
+pub struct PullRequestCommentEvent {
+    pub action: PullRequestCommentAction,
     pub changes: Option<Changes>,
-    pub issue: Issue,
+    pub pull_request: PullRequest,
     pub comment: Comment,
     pub repository: Repository,
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum IssuesAction {
+pub enum PullRequestAction {
     Opened,
     Edited,
     Deleted,
@@ -738,53 +390,21 @@ pub enum IssuesAction {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct IssuesEvent {
-    pub action: IssuesAction,
-    #[serde(alias = "pull_request")]
-    pub issue: Issue,
+pub struct PullRequestEvent {
+    pub action: PullRequestAction,
+    pub pull_request: PullRequest,
     pub changes: Option<Changes>,
     pub repository: Repository,
-    /// Some if action is IssuesAction::Labeled, for example
+    /// Some if action is PullRequestAction::Labeled, for example
     pub label: Option<Label>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct IssueSearchResult {
+pub struct PullRequestSearchResult {
     pub total_count: usize,
     pub incomplete_results: bool,
-    pub items: Vec<Issue>,
+    pub items: Vec<PullRequest>,
 }
-
-// #[derive(PartialEq, Eq, Debug, serde::Deserialize)]
-// #[serde(rename_all = "snake_case")]
-// pub enum PullRequestsAction {
-//     Opened,
-//     Edited,
-//     Deleted,
-//     Transferred,
-//     Pinned,
-//     Unpinned,
-//     Closed,
-//     Reopened,
-//     Assigned,
-//     Unassigned,
-//     Labeled,
-//     Unlabeled,
-//     Locked,
-//     Unlocked,
-//     Milestoned,
-//     Demilestoned,
-//     ReviewRequested,
-//     ReviewRequestRemoved,
-//     ReadyForReview,
-//     Synchronize,
-//     ConvertedToDraft,
-// }
-//
-// #[derive(Debug, serde::Deserialize)]
-// pub struct PullRequestsEvent {
-//     pub action: PullRequestsAction,
-// }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Repository {
@@ -792,132 +412,7 @@ pub struct Repository {
 }
 
 impl Repository {
-    const GITHUB_API_URL: &'static str = "https://api.github.com";
-
-    pub async fn get_issues<'a>(
-        &self,
-        client: &GithubClient,
-        query: &Query<'a>,
-    ) -> anyhow::Result<Vec<Issue>> {
-        let Query {
-            filters,
-            include_labels,
-            exclude_labels,
-            ..
-        } = query;
-
-        // `is: pull-request` indicates the query to retrieve PRs only
-        let is_pr = filters
-            .iter()
-            .any(|&(key, value)| key == "is" && value == "pull-request");
-
-        // There are some cases that can only be handled by the search API:
-        // 1. When using negating label filters (exclude_labels)
-        // 2. When there's a key parameter key=no
-        // 3. When the query is to retrieve PRs only and there are label filters
-        //
-        // Check https://docs.github.com/en/rest/reference/search#search-issues-and-pull-requests
-        // for more information
-        let use_search_api = !exclude_labels.is_empty()
-            || filters.iter().any(|&(key, _)| key == "no")
-            || is_pr && !include_labels.is_empty();
-
-        let url = if use_search_api {
-            self.build_search_issues_url(filters, include_labels, exclude_labels)
-        } else if is_pr {
-            self.build_pulls_url(filters, include_labels)
-        } else {
-            self.build_issues_url(filters, include_labels)
-        };
-
-        let result = client.get(&url);
-        if use_search_api {
-            let result = client
-                .json::<IssueSearchResult>(result)
-                .await
-                .with_context(|| format!("failed to list issues from {}", url))?;
-            Ok(result.items)
-        } else {
-            client
-                .json(result)
-                .await
-                .with_context(|| format!("failed to list issues from {}", url))
-        }
-    }
-
-    pub async fn get_issues_count<'a>(
-        &self,
-        client: &GithubClient,
-        query: &Query<'a>,
-    ) -> anyhow::Result<usize> {
-        Ok(self.get_issues(client, query).await?.len())
-    }
-
-    fn build_issues_url(&self, filters: &Vec<(&str, &str)>, include_labels: &Vec<&str>) -> String {
-        self.build_endpoint_url("issues", filters, include_labels)
-    }
-
-    fn build_pulls_url(&self, filters: &Vec<(&str, &str)>, include_labels: &Vec<&str>) -> String {
-        self.build_endpoint_url("pulls", filters, include_labels)
-    }
-
-    fn build_endpoint_url(
-        &self,
-        endpoint: &str,
-        filters: &Vec<(&str, &str)>,
-        include_labels: &Vec<&str>,
-    ) -> String {
-        let filters = filters
-            .iter()
-            .map(|(key, val)| format!("{}={}", key, val))
-            .chain(std::iter::once(format!(
-                "labels={}",
-                include_labels.join(",")
-            )))
-            .chain(std::iter::once("filter=all".to_owned()))
-            .chain(std::iter::once(format!("sort=created")))
-            .chain(std::iter::once(format!("direction=asc")))
-            .chain(std::iter::once(format!("per_page=100")))
-            .collect::<Vec<_>>()
-            .join("&");
-        format!(
-            "{}/repos/{}/{}?{}",
-            Repository::GITHUB_API_URL,
-            self.full_name,
-            endpoint,
-            filters
-        )
-    }
-
-    fn build_search_issues_url(
-        &self,
-        filters: &Vec<(&str, &str)>,
-        include_labels: &Vec<&str>,
-        exclude_labels: &Vec<&str>,
-    ) -> String {
-        let filters = filters
-            .iter()
-            .filter(|&&(key, val)| !(key == "state" && val == "all"))
-            .map(|(key, val)| format!("{}:{}", key, val))
-            .chain(
-                include_labels
-                    .iter()
-                    .map(|label| format!("label:{}", label)),
-            )
-            .chain(
-                exclude_labels
-                    .iter()
-                    .map(|label| format!("-label:{}", label)),
-            )
-            .chain(std::iter::once(format!("repo:{}", self.full_name)))
-            .collect::<Vec<_>>()
-            .join("+");
-        format!(
-            "{}/search/issues?q={}&sort=created&order=asc&per_page=100",
-            Repository::GITHUB_API_URL,
-            filters
-        )
-    }
+    // const GITHUB_API_URL: &'static str = "https://api.github.com";
 }
 
 pub struct Query<'a> {
@@ -958,76 +453,13 @@ pub struct PushEvent {
 #[derive(Debug)]
 pub enum Event {
     Create(CreateEvent),
-    IssueComment(IssueCommentEvent),
-    Issue(IssuesEvent),
+    PullRequestComment(PullRequestCommentEvent),
+    PullRequest(PullRequestEvent),
     Push(PushEvent),
 }
 
 impl Event {
-    pub fn repo_name(&self) -> &str {
-        match self {
-            Event::Create(event) => &event.repository.full_name,
-            Event::IssueComment(event) => &event.repository.full_name,
-            Event::Issue(event) => &event.repository.full_name,
-            Event::Push(event) => &event.repository.full_name,
-        }
-    }
 
-    pub fn issue(&self) -> Option<&Issue> {
-        match self {
-            Event::Create(_) => None,
-            Event::IssueComment(event) => Some(&event.issue),
-            Event::Issue(event) => Some(&event.issue),
-            Event::Push(_) => None,
-        }
-    }
-
-    /// This will both extract from IssueComment events but also Issue events
-    pub fn comment_body(&self) -> Option<&str> {
-        match self {
-            Event::Create(_) => None,
-            Event::Issue(e) => Some(&e.issue.body),
-            Event::IssueComment(e) => Some(&e.comment.body),
-            Event::Push(_) => None,
-        }
-    }
-
-    /// This will both extract from IssueComment events but also Issue events
-    pub fn comment_from(&self) -> Option<&str> {
-        match self {
-            Event::Create(_) => None,
-            Event::Issue(e) => Some(&e.changes.as_ref()?.body.as_ref()?.from),
-            Event::IssueComment(e) => Some(&e.changes.as_ref()?.body.as_ref()?.from),
-            Event::Push(_) => None,
-        }
-    }
-
-    pub fn html_url(&self) -> Option<&str> {
-        match self {
-            Event::Create(_) => None,
-            Event::Issue(e) => Some(&e.issue.html_url),
-            Event::IssueComment(e) => Some(&e.comment.html_url),
-            Event::Push(_) => None,
-        }
-    }
-
-    pub fn user(&self) -> &User {
-        match self {
-            Event::Create(e) => &e.sender,
-            Event::Issue(e) => &e.issue.user,
-            Event::IssueComment(e) => &e.comment.user,
-            Event::Push(e) => &e.sender,
-        }
-    }
-
-    pub fn time(&self) -> Option<chrono::DateTime<FixedOffset>> {
-        match self {
-            Event::Create(_) => None,
-            Event::Issue(e) => Some(e.issue.created_at.into()),
-            Event::IssueComment(e) => Some(e.comment.updated_at.into()),
-            Event::Push(_) => None,
-        }
-    }
 }
 
 trait RequestSend: Sized {

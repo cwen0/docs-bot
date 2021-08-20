@@ -1,0 +1,8 @@
+[[repos]]
+name = "docsbot"
+sidecars = "sidebars.json"
+
+[[repos.labels]]
+name = "docs/cherry-version-2.0.0"
+dictory = "versioned_docs/version-2.0.0"
+sidebars = "versioned_sidebars/version-2.0.0-sidebars.json"

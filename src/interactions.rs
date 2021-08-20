@@ -1,30 +1,30 @@
-use crate::github::{GithubClient, Issue};
-use std::fmt::Write;
+#![allow(unused)]
+use crate::github::PullRequest;
 
 pub struct ErrorComment<'a> {
-    issue: &'a Issue,
+    pull_request: &'a PullRequest,
     message: String,
 }
 
 impl<'a> ErrorComment<'a> {
-    pub fn new<T>(issue: &'a Issue, message: T) -> ErrorComment<'a>
+    pub fn new<T>(pull_request: &'a PullRequest, message: T) -> ErrorComment<'a>
         where
             T: Into<String>,
     {
         ErrorComment {
-            issue,
+            pull_request,
             message: message.into(),
         }
     }
 
-    pub async fn post(&self, client: &GithubClient) -> anyhow::Result<()> {
-        let mut body = String::new();
-        writeln!(body, "**Error**: {}", self.message)?;
-        writeln!(body)?;
-        writeln!(
-            body,
-            "Please let **`@chaos-mesh/maintainers`** know if you're having trouble with this bot."
-        )?;
-        self.issue.post_comment(client, &body).await
-    }
+    // pub async fn post(&self, client: &GithubClient) -> anyhow::Result<()> {
+    //     let mut body = String::new();
+    //     writeln!(body, "**Error**: {}", self.message)?;
+    //     writeln!(body)?;
+    //     writeln!(
+    //         body,
+    //         "Please let **`@chaos-mesh/maintainers`** know if you're having trouble with this bot."
+    //     )?;
+    //     self.pull_request.post_comment(client, &body).await
+    // }
 }
