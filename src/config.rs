@@ -1,9 +1,10 @@
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use std::fmt;
+use std::fs;
 use std::time::Instant;
 
-// static CONFIG_FILE_NAME: &str = "docsbot.toml";
+static CONFIG_FILE_NAME: &str = "docsbot.toml";
 // const REFRESH_EVERY: Duration = Duration::from_secs(2 * 60); // Every two minutes
 
 lazy_static::lazy_static! {
@@ -14,23 +15,43 @@ lazy_static::lazy_static! {
 
 #[derive(PartialEq, Eq, Debug, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) struct Config {
+pub struct Config {
+    pub repos: Vec<RepoConfig>,
 }
 
-// pub(crate) async fn get(gh: &GithubClient, repo: &str) -> Result<Arc<Config>, ConfigurationError> {
-//     if let Some(config) = get_cached_config(repo) {
-//         log::trace!("returning config for {} from cache", repo);
-//         config
-//     } else {
-//         log::trace!("fetching fresh config for {}", repo);
-//         let res = get_fresh_config(gh, repo).await;
-//         CONFIG_CACHE
-//             .write()
-//             .unwrap()
-//             .insert(repo.to_string(), (res.clone(), Instant::now()));
-//         res
-//     }
-// }
+#[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
+pub struct RepoConfig {
+    pub name: String,
+    pub labels: Vec<LabelConfig>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
+pub struct LabelConfig {
+    pub label: String,
+    pub directory: String,
+    pub sidebars: String,
+}
+
+pub async fn get_repo_config(repo: &str) -> Result<Arc<RepoConfig>, ConfigurationError> {
+    let config = parse_config_file()?;
+
+    for repo_config in config.repos.iter() {
+        let real_repo = repo_config.clone();
+        if real_repo.name.eq(repo) {
+            return Ok(Arc::new(real_repo));
+        }
+    }
+
+    Err(ConfigurationError::Missing)
+}
+
+fn parse_config_file() -> Result<Arc<Config>, ConfigurationError> {
+    let contents = fs::read_to_string(CONFIG_FILE_NAME).unwrap();
+
+    let config = Arc::new(toml::from_str::<Config>(contents.as_str()).map_err(ConfigurationError::Toml)?);
+    log::debug!("parse config {:?}", config);
+    Ok(config)
+}
 
 // fn get_cached_config(repo: &str) -> Option<Result<Arc<Config>, ConfigurationError>> {
 //     let cache = CONFIG_CACHE.read().unwrap();
@@ -42,7 +63,7 @@ pub(crate) struct Config {
 //         }
 //     })
 // }
-//
+
 // async fn get_fresh_config(
 //     gh: &GithubClient,
 //     repo: &str,
@@ -60,6 +81,7 @@ pub(crate) struct Config {
 #[derive(Clone, Debug)]
 pub enum ConfigurationError {
     Missing,
+    NotFound,
     Toml(toml::de::Error),
     Http(Arc<anyhow::Error>),
 }
@@ -71,8 +93,11 @@ impl fmt::Display for ConfigurationError {
         match self {
             ConfigurationError::Missing => write!(
                 f,
-                "This repository is not enabled to use docsbot.\n\
-                 Add a `docsbot.toml` in the root of the master branch to enable it."
+                "Repo config is not in docsbot.toml"
+            ),
+            ConfigurationError::NotFound => write!(
+                f,
+                "docsbot.toml not found"
             ),
             ConfigurationError::Toml(e) => {
                 write!(f, "Malformed `docsbot.toml` in master branch.\n{}", e)

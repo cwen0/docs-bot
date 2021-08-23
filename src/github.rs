@@ -459,7 +459,14 @@ pub enum Event {
 }
 
 impl Event {
-
+    pub fn repo_name(&self) -> &str {
+        match self {
+            Event::Create(event) => &event.repository.full_name,
+            Event::PullRequestComment(event) => &event.repository.full_name,
+            Event::PullRequest(event) => &event.repository.full_name,
+            Event::Push(event) => &event.repository.full_name,
+        }
+    }
 }
 
 trait RequestSend: Sized {

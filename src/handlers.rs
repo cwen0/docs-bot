@@ -1,5 +1,6 @@
 use std::fmt;
 use crate::github::{Event, GithubClient};
+use crate::config;
 
 mod pr_merge;
 
@@ -21,13 +22,21 @@ impl fmt::Display for HandlerError {
 }
 
 #[warn(unused_mut)]
-pub async fn handle(_ctx: &Context, event: &Event) -> Vec<HandlerError> {
-    // let config = config::get(&ctx.github, event.repo_name()).await;
-    let errors = Vec::new();
+pub async fn handle(ctx: &Context, event: &Event) -> Vec<HandlerError> {
+    let config = config::get_repo_config(event.repo_name()).await;
+    let mut errors = Vec::new();
+
+    let repo_config = match config {
+        Ok(c)   => c,
+        Err(err) => {
+            errors.push(HandlerError::Message(err.to_string()));
+            return errors;
+        },
+    };
 
     match event {
         Event::PullRequest(_event) => {
-            if let Err(e) = pr_merge::handle(_ctx, event).await {
+            if let Err(e) = pr_merge::handle(ctx, repo_config, event).await {
                 log::error!(
                     "failed to process event {:?} with pr_merge handler: {:?}",
                     event,
