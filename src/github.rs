@@ -203,6 +203,7 @@ pub struct PullRequest {
     pub merge_commit_sha: Option<String>,
     pub title: String,
     pub html_url: String,
+    pub diff_url: String,
     pub user: User,
     pub labels: Vec<Label>,
     pub assignees: Vec<User>,

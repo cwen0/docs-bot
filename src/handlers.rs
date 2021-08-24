@@ -2,7 +2,7 @@ use std::fmt;
 use crate::github::{Event, GithubClient};
 use crate::config;
 
-mod pr_merge;
+mod cherry_pick;
 
 #[derive(Debug)]
 pub enum HandlerError {
@@ -36,7 +36,7 @@ pub async fn handle(ctx: &Context, event: &Event) -> Vec<HandlerError> {
 
     match event {
         Event::PullRequest(_event) => {
-            if let Err(e) = pr_merge::handle(ctx, repo_config, event).await {
+            if let Err(e) = cherry_pick::handle(ctx, repo_config, event).await {
                 log::error!(
                     "failed to process event {:?} with pr_merge handler: {:?}",
                     event,

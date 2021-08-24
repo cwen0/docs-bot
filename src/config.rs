@@ -28,8 +28,10 @@ pub struct RepoConfig {
 #[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
 pub struct LabelConfig {
     pub label: String,
-    pub directory: String,
-    pub sidebars: String,
+    pub source_directory: String,
+    pub source_sidebars: String,
+    pub target_directory: String,
+    pub target_sidebars: String,
 }
 
 pub async fn get_repo_config(repo: &str) -> Result<Arc<RepoConfig>, ConfigurationError> {
