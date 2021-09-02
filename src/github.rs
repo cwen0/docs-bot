@@ -12,6 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+
 #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct User {
     pub login: String,
@@ -603,32 +604,6 @@ impl GithubClient {
     fn put(&self, url: &str) -> RequestBuilder {
         log::trace!("put {:?}", url);
         self.client.put(url).configure(self)
-    }
-
-    pub async fn rust_commit(&self, sha: &str) -> Option<GithubCommit> {
-        let req = self.get(&format!(
-            "https://api.github.com/repos/rust-lang/rust/commits/{}",
-            sha
-        ));
-        match self.json(req).await {
-            Ok(r) => Some(r),
-            Err(e) => {
-                log::error!("Failed to query commit {:?}: {:?}", sha, e);
-                None
-            }
-        }
-    }
-
-    /// This does not retrieve all of them, only the last several.
-    pub async fn bors_commits(&self) -> Vec<GithubCommit> {
-        let req = self.get("https://api.github.com/repos/rust-lang/rust/commits?author=bors");
-        match self.json(req).await {
-            Ok(r) => r,
-            Err(e) => {
-                log::error!("Failed to query commit list: {:?}", e);
-                Vec::new()
-            }
-        }
     }
 }
 
