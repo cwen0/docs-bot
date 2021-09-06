@@ -28,6 +28,7 @@ pub struct RepoConfig {
 #[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
 pub struct LabelConfig {
     pub label: String,
+    pub base_branch: String,
     pub source_directory: String,
     pub source_sidebars: String,
     pub target_directory: String,

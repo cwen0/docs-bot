@@ -9,16 +9,17 @@ use std::{env, fs, writeln};
 use std::path::Path;
 use std::fmt::Write as FmtWrite;
 use git2::IndexAddOption;
+use serde_json::json;
 
 pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> anyhow::Result<()> {
     let pr = if let Event::PullRequest(e) = event{
         if !matches!(e.action, PullRequestAction::Closed) {
             log::debug!("skipping event, pr was {:?}", e.action);
-            // return Ok(());
+            return Ok(());
         }
         if !e.pull_request.merged {
             log::debug!("skipping event, pr was not merged");
-            // return Ok(());
+            return Ok(());
         }
         e
     } else {
@@ -53,26 +54,12 @@ pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> an
 }
 
 async fn handle_docs_label(
-    _ctx: &Context,
+    ctx: &Context,
     config: &LabelConfig,
     pr_request: &PullRequest,
     repo_name: String,
 ) -> anyhow::Result<()> {
     let file_diff = parse_files_diff(&pr_request.diff_url).await.unwrap();
-    cherry_pick(pr_request, repo_name, config, file_diff).unwrap();
-
-    Ok(())
-}
-
-fn cherry_pick(
-    pr_request: &PullRequest,
-    repo_name: String,
-    config: &LabelConfig,
-    file_diff: HashMap<String, String>,
-) -> anyhow::Result<()> {
-    let current_dir = env::current_dir().unwrap();
-    // let commit = pr_request.merge_commit_sha.unwrap();
-
     let commit = if let Some(s) = &pr_request.merge_commit_sha {
         s
     } else {
@@ -81,6 +68,31 @@ fn cherry_pick(
     };
 
     let target = &(commit.clone()[0..12]);
+
+    cherry_pick(repo_name.as_str(), config, file_diff, target).unwrap();
+
+    let body = json!({
+        "title": format!("sync docs to {}", &config.label),
+        "head": target,
+        "base": config.base_branch,
+        "maintainer_can_modify": true,
+    });
+
+    let gh = ctx.github.clone();
+
+    gh.create_pull_request(repo_name.as_str(), body.to_string()).await.unwrap();
+
+    Ok(())
+}
+
+fn cherry_pick(
+    repo_name: &str,
+    config: &LabelConfig,
+    file_diff: HashMap<String, String>,
+    target_branch: &str,
+) -> anyhow::Result<()> {
+    let current_dir = env::current_dir().unwrap();
+
     let repo = format!("https://github.com/{}", repo_name);
 
     let cred = GitCredential::new(
@@ -89,53 +101,24 @@ fn cherry_pick(
     );
     let gt = Git::new(current_dir, cred).unwrap();
 
-    let repo = gt.clone_repo(target, repo.as_str()).unwrap();
+    let repo = gt.clone_repo(target_branch, repo.as_str()).unwrap();
 
-    gt.create_branch(&repo, target, "main").unwrap();
+    gt.create_branch(&repo, target_branch, config.base_branch.as_str()).unwrap();
 
-    gt.checkout(&repo, target).unwrap();
+    gt.checkout(&repo, target_branch).unwrap();
 
     for (file, _diff) in file_diff.iter() {
         let path = Path::new(file);
         log::info!("file: {:?}", file);
         if path.starts_with(&config.source_directory) {
+            let source_file_path = Path::new(target_branch).join(path);
+
             let base_file = path.strip_prefix(&config.source_directory).unwrap();
-            log::info!("base_file: {:?}", base_file.to_str());
-            let target_file_path = Path::new(target)
+            let target_file_path = Path::new(target_branch)
                 .join(&config.target_directory)
                 .join(base_file);
-            log::info!("target_file_path: {:?}", target_file_path.as_path().to_str());
 
-            // let mut file = fs::OpenOptions::new()
-            //     .read(true)
-            //     .open(&target_file_path.as_path())
-            //     .unwrap();
-            // // let mut file_content = fs::read_to_string(target_file_path).unwrap();
-            //
-            // let mut file_content = String::new();
-            // file.read_to_string(file_content.as_mut_string()).unwrap();
-            //
-            // // log::info!("{}", file_content);
-            // log::info!("{}", diff);
-            //
-            // let path_str = diffy::Patch::from_str(diff).unwrap();
-            // let patch_content = diffy::apply(file_content.as_str(), &path_str);
-            //
-            // let patch_content = match patch_content {
-            //     Ok(p) => p,
-            //     Err(e) => panic!("Problem creating the file: {:?}", e),
-            // };
-            //
-            // log::info!("patch_content: {}", patch_content);
-
-            // let mut n_file = fs::OpenOptions::new()
-            //     .write(true)
-            //     .open(&target_file_path.as_path())
-            //     .unwrap();
-            //
-            // n_file.write_all(patch_content.as_bytes()).unwrap();
-
-            let source_file_path = Path::new(target).join(path);
+            log::info!("copy {:?} to {:?}", source_file_path, target_file_path);
 
             fs::copy(source_file_path, target_file_path).unwrap();
         }
@@ -152,21 +135,12 @@ fn cherry_pick(
             .as_str())
         .unwrap();
 
-    gt.push_branch(&repo, target, "origin").unwrap();
+    gt.push_branch(&repo, target_branch, "origin").unwrap();
 
-    fs::remove_dir_all(target).unwrap();
+    fs::remove_dir_all(target_branch).unwrap();
 
     Ok(())
 }
-
-// fn default_username_from_env() -> String {
-//     match env::var("GITHUB_USERNAME") {
-//         Ok(v) => return v,
-//         Err(_) => (),
-//     }
-//
-//     panic!("could not find token in GITHUB_USERNAME or .gitconfig/github.oath-token")
-// }
 
 async fn parse_files_diff(url: &String) -> anyhow::Result<HashMap<String, String>, reqwest::Error>{
     let file_content = reqwest::get(url).await?
@@ -212,9 +186,6 @@ async fn parse_files_diff(url: &String) -> anyhow::Result<HashMap<String, String
             }
         }
     }
-
-    // log::info!("{:?}", file_diff_map);
-    // log::info!("{:?}", file_start_map);
 
     Ok(file_diff_map)
 }

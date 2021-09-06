@@ -11,6 +11,7 @@ use std::{
     fmt,
     time::{Duration, SystemTime},
 };
+use dotenv::Error;
 
 
 #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
@@ -532,53 +533,25 @@ impl GithubClient {
         &self.client
     }
 
-    pub async fn raw_file(
+    pub async fn create_pull_request(
         &self,
-        repo: &str,
-        branch: &str,
-        path: &str,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
-        let url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}",
-            repo, branch, path
-        );
-        let req = self.get(&url);
-        let req_dbg = format!("{:?}", req);
-        let req = req
-            .build()
-            .with_context(|| format!("failed to build request {:?}", req_dbg))?;
-        let mut resp = self.client.execute(req).await.context(req_dbg.clone())?;
-        let status = resp.status();
-        match status {
-            StatusCode::OK => {
-                let mut buf = Vec::with_capacity(resp.content_length().unwrap_or(4) as usize);
-                while let Some(chunk) = resp.chunk().await.transpose() {
-                    let chunk = chunk
-                        .context("reading stream failed")
-                        .map_err(anyhow::Error::from)
-                        .context(req_dbg.clone())?;
-                    buf.extend_from_slice(&chunk);
-                }
-                Ok(Some(buf))
-            }
-            StatusCode::NOT_FOUND => Ok(None),
-            status => anyhow::bail!("failed to GET {}: {}", url, status),
-        }
-    }
+        repo_name: &str,
+        body: String,
+    ) ->anyhow::Result<()> {
+        let resp = self.post(&format!(
+            "https://api.github.com/repos/{}/pulls",
+            repo_name))
+            .body(body)
+            .send()
+            .await
+            .unwrap();
 
-    /// Get the raw gist content from the URL of the HTML version of the gist:
-    ///
-    /// `html_url` looks like `https://gist.github.com/rust-play/7e80ca3b1ec7abe08f60c41aff91f060`.
-    ///
-    /// `filename` is the name of the file you want the content of.
-    pub async fn raw_gist_from_url(
-        &self,
-        html_url: &str,
-        filename: &str,
-    ) -> anyhow::Result<String> {
-        let url = html_url.replace("github.com", "githubusercontent.com") + "/raw/" + filename;
-        let response = self.raw().get(&url).send().await?;
-        response.text().await.context("raw gist from url")
+        if !resp.status().is_success() {
+            log::error!("failed to post pull request {:?}", repo_name);
+            // Error("failed to post pull request");
+        }
+
+        Ok(())
     }
 
     fn get(&self, url: &str) -> RequestBuilder {
