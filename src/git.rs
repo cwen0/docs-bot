@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use dialoguer::PasswordInput;
 use git2::Error;
-use git2::{Repository, Branch, BranchType};
+use git2::{Repository, Branch, BranchType, Index, Tree, Commit};
 use git2_credentials::CredentialHandler;
 use git2_credentials::CredentialUI;
 
@@ -158,6 +158,59 @@ impl Git {
 
         origin.push(&[&ref_by_branch(branch)], Some(&mut po)).unwrap();
 
+        Ok(())
+    }
+
+    pub fn commit_index(
+        &self,
+        repo: &Repository,
+        index: &mut Index,
+        msg: &str,
+    ) -> anyhow::Result<(), Error> {
+        let tree_id = index.write_tree().unwrap();
+        let result_tree = repo.find_tree(tree_id).unwrap();
+
+        let head_oid = repo.
+            head()
+            .unwrap()
+            .target()
+            .expect("Head needs oid");
+        let head_commit = repo.find_commit(head_oid).unwrap();
+
+        log::info!("{}", head_commit.author());
+        log::info!("{}", head_commit.id());
+        log::info!("{}", head_commit.message().unwrap());
+        log::info!("{}", result_tree.id());
+
+        self.commit_tree(&repo, &result_tree, msg, &[&head_commit]).unwrap();
+
+        Ok(())
+    }
+
+    pub fn commit_first(
+        &self,
+        repo: &Repository,
+        index: &mut Index,
+        msg: &str,
+    ) -> anyhow::Result<(), Error> {
+        let tree_id = index.write_tree().unwrap();
+        let result_tree = repo.find_tree(tree_id).unwrap();
+
+        self.commit_tree(&repo, &result_tree, msg, &[]).unwrap();
+
+        Ok(())
+    }
+
+    pub fn commit_tree(
+        &self,
+        repo: &Repository,
+        tree: &Tree,
+        msg: &str,
+        parents: &[&Commit],
+    ) -> anyhow::Result<(), Error> {
+        let sig = repo.signature().unwrap();
+        let _merge_commit = repo.commit(Some("HEAD"), &sig, &sig, msg, tree, parents).unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force())).unwrap();
         Ok(())
     }
 

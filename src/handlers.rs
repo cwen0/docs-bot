@@ -30,9 +30,11 @@ pub async fn handle(ctx: &Context, event: &Event) -> Vec<HandlerError> {
         Ok(c)   => c,
         Err(err) => {
             errors.push(HandlerError::Message(err.to_string()));
+            log::error!("failed to get repo config, {}", err);
             return errors;
         },
     };
+
 
     match event {
         Event::PullRequest(_event) => {

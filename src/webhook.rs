@@ -112,6 +112,10 @@ pub async fn webhook(
         }
     }
 
+    if !message.is_empty() {
+        // TODO
+    }
+
     if other_error {
         Err(WebhookError(anyhow::anyhow!(
             "handling failed, error logged",

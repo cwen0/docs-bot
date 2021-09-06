@@ -5,10 +5,10 @@ use crate::git::{Git, GitCredential};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::{env, fs};
+use std::{env, fs, writeln};
 use std::path::Path;
-use std::io::{Read, Write};
-use url::form_urlencoded::Target;
+use std::fmt::Write as FmtWrite;
+use git2::IndexAddOption;
 
 pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> anyhow::Result<()> {
     let pr = if let Event::PullRequest(e) = event{
@@ -93,26 +93,68 @@ fn cherry_pick(
 
     gt.create_branch(&repo, target, "main").unwrap();
 
-    for (file, diff) in file_diff.iter() {
+    gt.checkout(&repo, target).unwrap();
+
+    for (file, _diff) in file_diff.iter() {
         let path = Path::new(file);
+        log::info!("file: {:?}", file);
         if path.starts_with(&config.source_directory) {
             let base_file = path.strip_prefix(&config.source_directory).unwrap();
-            let target_file_path = Path::new(&config.target_directory).join(base_file);
+            log::info!("base_file: {:?}", base_file.to_str());
+            let target_file_path = Path::new(target)
+                .join(&config.target_directory)
+                .join(base_file);
+            log::info!("target_file_path: {:?}", target_file_path.as_path().to_str());
 
-            let mut file = fs::OpenOptions::new().write(true).open(&target_file_path.as_path()).unwrap();
-            // let mut file_content = fs::read_to_string(target_file_path).unwrap();
+            // let mut file = fs::OpenOptions::new()
+            //     .read(true)
+            //     .open(&target_file_path.as_path())
+            //     .unwrap();
+            // // let mut file_content = fs::read_to_string(target_file_path).unwrap();
+            //
+            // let mut file_content = String::new();
+            // file.read_to_string(file_content.as_mut_string()).unwrap();
+            //
+            // // log::info!("{}", file_content);
+            // log::info!("{}", diff);
+            //
+            // let path_str = diffy::Patch::from_str(diff).unwrap();
+            // let patch_content = diffy::apply(file_content.as_str(), &path_str);
+            //
+            // let patch_content = match patch_content {
+            //     Ok(p) => p,
+            //     Err(e) => panic!("Problem creating the file: {:?}", e),
+            // };
+            //
+            // log::info!("patch_content: {}", patch_content);
 
-            let mut file_content = String::new();
-            file.read_to_string(file_content.as_mut_string()).unwrap();
+            // let mut n_file = fs::OpenOptions::new()
+            //     .write(true)
+            //     .open(&target_file_path.as_path())
+            //     .unwrap();
+            //
+            // n_file.write_all(patch_content.as_bytes()).unwrap();
 
-            let path_str = diffy::Patch::from_str(diff).unwrap();
-            let path_context = diffy::apply(file_content.as_str(), &path_str).unwrap();
+            let source_file_path = Path::new(target).join(path);
 
-            file.write_all(path_context.as_bytes()).unwrap();
+            fs::copy(source_file_path, target_file_path).unwrap();
         }
     }
 
+    let mut index = repo.index().expect("cannot get the Index file");
+    index.add_all(["."].iter(), IndexAddOption::DEFAULT, None).unwrap();
+    index.write().unwrap();
+
+    gt.commit_index(
+        &repo,
+        &mut index,
+        format!("sync to {}", config.target_directory)
+            .as_str())
+        .unwrap();
+
     gt.push_branch(&repo, target, "origin").unwrap();
+
+    fs::remove_dir_all(target).unwrap();
 
     Ok(())
 }
@@ -125,7 +167,6 @@ fn cherry_pick(
 //
 //     panic!("could not find token in GITHUB_USERNAME or .gitconfig/github.oath-token")
 // }
-
 
 async fn parse_files_diff(url: &String) -> anyhow::Result<HashMap<String, String>, reqwest::Error>{
     let file_content = reqwest::get(url).await?
@@ -157,10 +198,15 @@ async fn parse_files_diff(url: &String) -> anyhow::Result<HashMap<String, String
             let start_index = file_start_map.get(file_name.as_str()).unwrap();
 
             if num_u64 >= *start_index {
-                if !diffs.is_empty() {
-                    diffs.push('\n')
-                }
-                diffs.push_str(line);
+                // if !diffs.is_empty() {
+                //     diffs.push('\n')
+                // }
+                // diffs.push_str(line);
+
+                match writeln!(&mut diffs, "{}", line) {
+                    Ok(_) => {},
+                    Err(e) => panic!("failed to run writeln: {:?}", e),
+                };
 
                 file_diff_map.insert(file_name.clone(), diffs);
             }
