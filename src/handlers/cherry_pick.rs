@@ -1,4 +1,4 @@
-use crate::github::{Event, PullRequestAction, PullRequest};
+use crate::github::{PullRequest, PullRequestEvent};
 use crate::handlers::Context;
 use crate::config::{RepoConfig, LabelConfig};
 use crate::git::{Git, GitCredential};
@@ -10,23 +10,16 @@ use std::path::Path;
 use std::fmt::Write as FmtWrite;
 use git2::IndexAddOption;
 use serde_json::json;
+use std::time::Duration;
+use std::thread::sleep;
 
-pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> anyhow::Result<()> {
-    let pr = if let Event::PullRequest(e) = event{
-        if !matches!(e.action, PullRequestAction::Closed) {
-            log::debug!("skipping event, pr was {:?}", e.action);
-            return Ok(());
-        }
-        if !e.pull_request.merged {
-            log::debug!("skipping event, pr was not merged");
-            return Ok(());
-        }
-        e
-    } else {
-        return Ok(());
-    };
-
+pub async fn handle<'a>(
+    ctx: &Context<'a>,
+    config: Arc<RepoConfig>,
+    pr: &PullRequestEvent,
+) -> anyhow::Result<()> {
     let labels = pr.pull_request.labels();
+    let repo_name = &pr.repository.full_name;
 
     for config_label in config.labels.iter() {
         log::info!("config label: {}", config_label.label);
@@ -38,7 +31,7 @@ pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> an
                     ctx,
                     config_label,
                     pull_request,
-                    event.repo_name().to_string(),
+                    repo_name.to_string(),
                 ).await {
                     Ok(()) => {
                         log::info!("handle docs label successfully!")
@@ -53,8 +46,8 @@ pub async fn handle(ctx: &Context, config: Arc<RepoConfig>, event: &Event) -> an
     Ok(())
 }
 
-async fn handle_docs_label(
-    ctx: &Context,
+async fn handle_docs_label<'a>(
+    ctx: &Context<'a>,
     config: &LabelConfig,
     pr_request: &PullRequest,
     repo_name: String,
@@ -70,6 +63,10 @@ async fn handle_docs_label(
     let target = &(commit.clone()[0..12]);
 
     cherry_pick(repo_name.as_str(), config, file_diff, target).unwrap();
+
+    log::info!("sleep 2 s");
+    sleep(Duration::from_secs(2));
+    log::info!("sleep end");
 
     let body = json!({
         "title": format!("sync docs to {}", &config.label),
@@ -101,9 +98,12 @@ fn cherry_pick(
     );
     let gt = Git::new(current_dir, cred).unwrap();
 
-    let repo = gt.clone_repo(target_branch, repo.as_str()).unwrap();
+    let repo_dir = target_branch.clone();
+    let base_branch = config.base_branch.as_str();
 
-    gt.create_branch(&repo, target_branch, config.base_branch.as_str()).unwrap();
+    let repo = gt.clone_repo(repo_dir,  base_branch, repo.as_str()).unwrap();
+
+    gt.create_branch(&repo, target_branch, base_branch).unwrap();
 
     gt.checkout(&repo, target_branch).unwrap();
 
@@ -111,10 +111,10 @@ fn cherry_pick(
         let path = Path::new(file);
         log::info!("file: {:?}", file);
         if path.starts_with(&config.source_directory) {
-            let source_file_path = Path::new(target_branch).join(path);
+            let source_file_path = Path::new(repo_dir).join(path);
 
             let base_file = path.strip_prefix(&config.source_directory).unwrap();
-            let target_file_path = Path::new(target_branch)
+            let target_file_path = Path::new(repo_dir)
                 .join(&config.target_directory)
                 .join(base_file);
 

@@ -1,5 +1,4 @@
 #![allow(unused)]
-
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset, Utc};
 use futures::{future::BoxFuture, FutureExt};
@@ -33,6 +32,8 @@ impl GithubClient {
         if let Some(sleep) = Self::needs_retry(&resp).await {
             resp = self.retry(req, sleep, MAX_ATTEMPTS).await?;
         }
+
+        log::debug!("resp {:?}", resp);
 
         resp.error_for_status_ref()?;
 
@@ -402,6 +403,19 @@ pub struct PullRequestEvent {
     pub label: Option<Label>,
 }
 
+impl PullRequestEvent {
+    pub fn is_closed_and_merged(&self) -> bool {
+        if !matches!(self.action, PullRequestAction::Closed) {
+            return false;
+        }
+        if !self.pull_request.merged {
+            return false;
+        }
+
+        return true;
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct PullRequestSearchResult {
     pub total_count: usize,
@@ -480,7 +494,7 @@ impl RequestSend for RequestBuilder {
     fn configure(self, g: &GithubClient) -> RequestBuilder {
         let mut auth = HeaderValue::from_maybe_shared(format!("token {}", g.token)).unwrap();
         auth.set_sensitive(true);
-        self.header(USER_AGENT, "rust-lang-triagebot")
+        self.header(USER_AGENT, "chaos-mesh-docsbot")
             .header(AUTHORIZATION, &auth)
     }
 }
@@ -538,18 +552,18 @@ impl GithubClient {
         repo_name: &str,
         body: String,
     ) ->anyhow::Result<()> {
-        let resp = self.post(&format!(
+        log::trace!("body {:?}", body);
+
+        let res = self._send_req(self.post(&format!(
             "https://api.github.com/repos/{}/pulls",
             repo_name))
             .body(body)
-            .send()
+            .timeout(Duration::from_secs(2)))
             .await
+            .context("failed to post comment")
             .unwrap();
 
-        if !resp.status().is_success() {
-            log::error!("failed to post pull request {:?}", repo_name);
-            // Error("failed to post pull request");
-        }
+        log::trace!("resp {:?}", res);
 
         Ok(())
     }

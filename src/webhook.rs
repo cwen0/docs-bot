@@ -74,10 +74,10 @@ pub fn deserialize_payload<T: serde::de::DeserializeOwned>(v: &str) -> anyhow::R
     }
 }
 
-pub async fn webhook(
+pub async fn webhook<'a>(
     event: EventName,
     payload: String,
-    ctx: &handlers::Context,
+    ctx: &handlers::Context<'a>,
 ) -> Result<bool, WebhookError> {
     let event = match event {
         EventName::PullRequest => {

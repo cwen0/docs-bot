@@ -92,7 +92,7 @@ impl Git {
         })
     }
 
-    pub fn clone_repo(&self, name: &str, remote_url: &str) -> anyhow::Result<git2::Repository, CloneError> {
+    pub fn clone_repo(&self, name: &str, branch: &str, remote_url: &str) -> anyhow::Result<git2::Repository, CloneError> {
         // let root_dir = self.workdir.clone();
         let mut local_path = self.workdir.clone();
         local_path.push(name);
@@ -109,6 +109,7 @@ impl Git {
             .update_fetchhead(true);
 
         git2::build::RepoBuilder::new()
+            .branch(branch)
             .fetch_options(fo)
             .clone(remote_url, local_path.as_path())
             .map_err(|s| CloneError {

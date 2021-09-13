@@ -1,19 +1,17 @@
 #![allow(unused)]
 use anyhow::Context as _;
-use docsbot::logger;
-use std::env;
+use std::{env, thread};
 use std::net::SocketAddr;
+use std::option::Option::Some;
+use std::sync::{Arc, mpsc};
 use futures::future::FutureExt;
 use futures::StreamExt;
 use reqwest::Client;
 use uuid::Uuid;
-use std::sync::Arc;
-use docsbot::handlers::Context;
-use docsbot::db;
-use docsbot::webhook;
+use docsbot::{logger, db, webhook, github};
+use docsbot::github::PullRequestEvent;
+use docsbot::handlers::{Context, handle_pr_task};
 use hyper::{header, Body, Request, Response, Server, StatusCode, Method};
-use std::option::Option::Some;
-use docsbot::github;
 
 async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Body>, hyper::Error> {
     log::info!("request = {:?}", req);
@@ -92,15 +90,23 @@ async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {
     // TODO: init db and model
     // let conn = db::make_db_conn();
 
-
     let client = Client::new();
     let gh = github::GithubClient::new_with_default_token(client.clone());
+    let (tx, rx): (mpsc::Sender<PullRequestEvent>, mpsc::Receiver<PullRequestEvent>) = mpsc::channel();
 
     let ctx = Arc::new(Context{
         github: gh,
         // db_conn: conn.unwrap(),
         username: String::from("docsbot"),
+        pr_task_sender: tx,
+        pr_task_receiver: rx,
     });
+
+    let pr_handler = thread::spawn(move || {
+        handle_pr_task(&ctx.clone());
+    });
+
+    pr_handler.join().expect("oops! pr task thread panicked");
 
     let svc = hyper::service::make_service_fn(move |_conn| {
         let ctx = ctx.clone();
