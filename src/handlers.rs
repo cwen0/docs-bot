@@ -23,8 +23,8 @@ impl fmt::Display for HandlerError {
 }
 
 #[warn(unused_mut)]
-pub async fn handle<'a>(
-    ctx: &Context<'a>,
+pub async fn handle(
+    ctx: &Context,
     event: &Event,
 ) -> Vec<HandlerError> {
     let config = config::get_repo_config(event.repo_name()).await;
@@ -32,12 +32,11 @@ pub async fn handle<'a>(
 
     match config {
         Ok(_c)   => {
-            let sender = ctx.pr_task_sender.clone();
-
+            let sender = &ctx.pr_task_sender;
             match event {
                 Event::PullRequest( e) => {
                     if e.is_closed_and_merged() {
-                        sender.send(e).unwrap();
+                        sender.send(e.clone()).unwrap();
                     }
                 }
                 _ => {
@@ -54,15 +53,15 @@ pub async fn handle<'a>(
     errors
 }
 
-pub struct Context<'a> {
+pub struct Context {
     pub github: GithubClient,
     // pub db_conn: Connection,
     pub username: String,
-    pub pr_task_sender: mpsc::Sender<&'a PullRequestEvent>,
-    pub pr_task_receiver: mpsc::Receiver<&'a PullRequestEvent>,
+    pub pr_task_sender: mpsc::Sender<PullRequestEvent>,
+    pub pr_task_receiver: mpsc::Receiver<PullRequestEvent>,
 }
 
-pub async fn handle_pr_task<'a>(ctx: &Context<'a>) -> anyhow::Result<()> {
+pub async fn handle_pr_task(ctx: &Context) -> anyhow::Result<()> {
     let receiver = &ctx.pr_task_receiver;
     for pr in receiver {
         let config = config::get_repo_config(

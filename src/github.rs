@@ -13,7 +13,7 @@ use std::{
 use dotenv::Error;
 
 
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct User {
     pub login: String,
     pub id: Option<i64>,
@@ -196,7 +196,7 @@ impl Label {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct PullRequest {
     pub number: u64,
     pub body: Option<String>,
@@ -313,12 +313,12 @@ pub struct Milestone {
     title: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct ChangeInner {
     pub from: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct Changes {
     pub title: Option<ChangeInner>,
     pub body: Option<ChangeInner>,
@@ -367,7 +367,7 @@ pub struct PullRequestCommentEvent {
     pub repository: Repository,
 }
 
-#[derive(PartialEq, Eq, Debug, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PullRequestAction {
     Opened,
@@ -393,7 +393,7 @@ pub enum PullRequestAction {
     ConvertedToDraft,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct PullRequestEvent {
     pub action: PullRequestAction,
     pub pull_request: PullRequest,
@@ -423,7 +423,7 @@ pub struct PullRequestSearchResult {
     pub items: Vec<PullRequest>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct Repository {
     pub full_name: String,
 }

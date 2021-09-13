@@ -13,8 +13,8 @@ use serde_json::json;
 use std::time::Duration;
 use std::thread::sleep;
 
-pub async fn handle<'a>(
-    ctx: &Context<'a>,
+pub async fn handle(
+    ctx: &Context,
     config: Arc<RepoConfig>,
     pr: &PullRequestEvent,
 ) -> anyhow::Result<()> {
@@ -46,8 +46,8 @@ pub async fn handle<'a>(
     Ok(())
 }
 
-async fn handle_docs_label<'a>(
-    ctx: &Context<'a>,
+async fn handle_docs_label(
+    ctx: &Context,
     config: &LabelConfig,
     pr_request: &PullRequest,
     repo_name: String,
