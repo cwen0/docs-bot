@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use crate::github::{Event, GithubClient, PullRequestEvent};
 use crate::config;
 
@@ -24,15 +24,15 @@ impl fmt::Display for HandlerError {
 
 #[warn(unused_mut)]
 pub async fn handle(
-    ctx: &Context,
+    _ctx: &Context,
     event: &Event,
+    sender: mpsc::Sender<PullRequestEvent>,
 ) -> Vec<HandlerError> {
     let config = config::get_repo_config(event.repo_name()).await;
     let mut errors = Vec::new();
 
     match config {
         Ok(_c)   => {
-            let sender = &ctx.pr_task_sender;
             match event {
                 Event::PullRequest( e) => {
                     if e.is_closed_and_merged() {
@@ -57,19 +57,21 @@ pub struct Context {
     pub github: GithubClient,
     // pub db_conn: Connection,
     pub username: String,
-    pub pr_task_sender: mpsc::Sender<PullRequestEvent>,
-    pub pr_task_receiver: mpsc::Receiver<PullRequestEvent>,
+    // pub pr_task_sender: mpsc::Sender<PullRequestEvent>,
+    // pub pr_task_receiver: mpsc::Receiver<PullRequestEvent>,
 }
 
-pub async fn handle_pr_task(ctx: &Context) -> anyhow::Result<()> {
-    let receiver = &ctx.pr_task_receiver;
+pub async fn handle_pr_task(
+    ctx: Arc<Context>,
+    receiver: mpsc::Receiver<PullRequestEvent> ,
+) -> anyhow::Result<()> {
     for pr in receiver {
         let config = config::get_repo_config(
             pr.repository.full_name.as_str()).await;
 
         match config {
             Ok(c)   => {
-                if let Err(err) = cherry_pick::handle(ctx, c, &pr).await {
+                if let Err(err) = cherry_pick::handle(ctx.clone(), c, &pr).await {
                     log::error!("failed to process event {:?} with pr_merge handler: {:?}", pr, err);
                 };
             },

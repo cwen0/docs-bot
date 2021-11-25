@@ -13,7 +13,11 @@ use docsbot::github::PullRequestEvent;
 use docsbot::handlers::{Context, handle_pr_task};
 use hyper::{header, Body, Request, Response, Server, StatusCode, Method};
 
-async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Body>, hyper::Error> {
+async fn serve_req(
+    req: Request<Body>,
+    ctx: Arc<Context>,
+    sender: mpsc::Sender<PullRequestEvent>,
+) -> Result<Response<Body>, hyper::Error> {
     log::info!("request = {:?}", req);
     let (req, body_stream) = req.into_parts();
 
@@ -62,7 +66,7 @@ async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Bod
 
             // TODO: check signature
 
-            match webhook::webhook(event, payload, &ctx).await {
+            match webhook::webhook(event, payload, &ctx, sender).await {
                 Ok(true) => Ok(Response::new(Body::from("processed request"))),
                 Ok(false) => Ok(Response::new(Body::from("ignored request"))),
                 Err(err) => {
@@ -84,38 +88,21 @@ async fn serve_req(req: Request<Body>, ctx: Arc<Context>) -> Result<Response<Bod
     }
 }
 
-async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {
+async fn run_server(
+    ctx: Arc<Context>,
+    addr: SocketAddr,
+    sender: mpsc::Sender<PullRequestEvent>,
+) -> anyhow::Result<()> {
     log::info!("Listening on http://{}", addr);
-
-    // TODO: init db and model
-    // let conn = db::make_db_conn();
-
-    let client = Client::new();
-    let gh = github::GithubClient::new_with_default_token(client.clone());
-    let (tx, rx): (mpsc::Sender<PullRequestEvent>, mpsc::Receiver<PullRequestEvent>) = mpsc::channel();
-
-    let ctx = Arc::new(Context{
-        github: gh,
-        // db_conn: conn.unwrap(),
-        username: String::from("docsbot"),
-        pr_task_sender: tx,
-        pr_task_receiver: rx,
-    });
-
-    let pr_handler = thread::spawn(move || {
-        handle_pr_task(&ctx.clone());
-    });
-
-    pr_handler.join().expect("oops! pr task thread panicked");
-
     let svc = hyper::service::make_service_fn(move |_conn| {
         let ctx = ctx.clone();
+        let sender = sender.clone();
         async move {
             let uuid = Uuid::new_v4();
             Ok::<_, hyper::Error>(hyper::service::service_fn(move |req| {
                 logger::LogFuture::new(
                     uuid,
-                    serve_req(req, ctx.clone()).map(move |mut resp| {
+                    serve_req(req, ctx.clone(), sender.clone()).map(move |mut resp| {
                         if let Ok(resp) = &mut resp {
                             resp.headers_mut()
                                 .insert("X-Request-Id", uuid.to_string().parse().unwrap());
@@ -144,10 +131,29 @@ async fn main() {
         .map(|p| p.parse::<u16>().expect("parsed PORT"))
         .unwrap_or(8000);
 
+    let (tx, rx): (mpsc::Sender<PullRequestEvent>, mpsc::Receiver<PullRequestEvent>) = mpsc::channel();
+
+    let client = Client::new();
+    let gh = github::GithubClient::new_with_default_token(client.clone());
+
+    let ctx = Arc::new(Context{
+        github: gh,
+        // db_conn: conn.unwrap(),
+        username: String::from("docsbot"),
+        // pr_task_sender: tx,
+        // pr_task_receiver: rx,
+    });
+
+    let ctx_ = ctx.clone();
+    let pr_handler = thread::spawn(move || {
+        handle_pr_task(ctx_, rx);
+    });
+    pr_handler.join().expect("oops! pr task thread panicked");
+
     let addr:SocketAddr = ([0, 0, 0, 0], port).into();
 
     // log::info!("server addr: {}", addr);
-    if let Err(e) = run_server(addr).await{
+    if let Err(e) = run_server(ctx.clone(), addr, tx).await{
         eprintln!("Failed to run server: {:?}", e)
     }
 }

@@ -1,9 +1,11 @@
 #![allow(clippy::new_without_default)]
 
 use std::fmt;
+use std::sync::mpsc;
 use crate::handlers;
 use crate::github;
 use anyhow::Context;
+use crate::github::PullRequestEvent;
 
 #[derive(Debug)]
 pub enum EventName {
@@ -78,6 +80,7 @@ pub async fn webhook(
     event: EventName,
     payload: String,
     ctx: &handlers::Context,
+    sender: mpsc::Sender<PullRequestEvent>,
 ) -> Result<bool, WebhookError> {
     let event = match event {
         EventName::PullRequest => {
@@ -93,7 +96,7 @@ pub async fn webhook(
         }
     };
 
-    let errors = handlers::handle(&ctx, &event).await;
+    let errors = handlers::handle(&ctx, &event, sender).await;
     let mut other_error = false;
     let mut message = String::new();
 

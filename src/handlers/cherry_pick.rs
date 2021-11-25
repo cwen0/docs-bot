@@ -14,7 +14,7 @@ use std::time::Duration;
 use std::thread::sleep;
 
 pub async fn handle(
-    ctx: &Context,
+    ctx: Arc<Context>,
     config: Arc<RepoConfig>,
     pr: &PullRequestEvent,
 ) -> anyhow::Result<()> {
@@ -28,7 +28,7 @@ pub async fn handle(
         match label {
             Some(_l) => {
                 match handle_docs_label(
-                    ctx,
+                    ctx.clone(),
                     config_label,
                     pull_request,
                     repo_name.to_string(),
@@ -47,7 +47,7 @@ pub async fn handle(
 }
 
 async fn handle_docs_label(
-    ctx: &Context,
+    ctx: Arc<Context>,
     config: &LabelConfig,
     pr_request: &PullRequest,
     repo_name: String,
