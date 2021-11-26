@@ -1,11 +1,11 @@
 [[repos]]
-name = "chaos-mesh/website-zh"
+name = "cwen0/website"
 sidecars = "sidebars.json"
 
 [[repos.labels]]
-label = "docs/cherry-version-2.0.1"
+label = "docs/cherry-version-2.0.4"
 base_branch = "bot-test"
 source_directory = "docs"
 source_sidebars = "sidebars.js"
-target_directory = "versioned_docs/version-2.0.1"
-target_sidebars = "versioned_sidebars/version-2.0.1-sidebars.json"
+target_directory = "versioned_docs/version-2.0.4"
+target_sidebars = "versioned_sidebars/version-2.0.4-sidebars.json"

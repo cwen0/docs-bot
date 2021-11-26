@@ -35,9 +35,10 @@ pub async fn handle(
         Ok(_c)   => {
             match event {
                 Event::PullRequest( e) => {
-                    if e.is_closed_and_merged() {
+                    log::info!("send event {:?}", e);
+                    // if e.is_closed_and_merged() {
                         sender.send(e.clone()).unwrap();
-                    }
+                    // }
                 }
                 _ => {
                     log::debug!("skipping event");
@@ -66,6 +67,7 @@ pub async fn handle_pr_task(
     receiver: mpsc::Receiver<PullRequestEvent> ,
 ) -> anyhow::Result<()> {
     for pr in receiver {
+        log::info!("receiver event");
         let config = config::get_repo_config(
             pr.repository.full_name.as_str()).await;
 

@@ -144,17 +144,17 @@ async fn main() {
         // pr_task_receiver: rx,
     });
 
-    let ctx_ = ctx.clone();
-    let pr_handler = thread::spawn(move || {
-        handle_pr_task(ctx_, rx);
-    });
-    pr_handler.join().expect("oops! pr task thread panicked");
-
     let addr:SocketAddr = ([0, 0, 0, 0], port).into();
 
     // log::info!("server addr: {}", addr);
-    if let Err(e) = run_server(ctx.clone(), addr, tx).await{
-        eprintln!("Failed to run server: {:?}", e)
-    }
+    let ctx_ = ctx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = run_server(ctx_, addr, tx).await{
+            eprintln!("Failed to run server: {:?}", e)
+        }
+    });
+
+    handle_pr_task(ctx.clone(), rx).await;
+    // pr_handler.join().expect("oops! pr task thread panicked");
 }
 
