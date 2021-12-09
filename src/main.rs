@@ -140,8 +140,6 @@ async fn main() {
         github: gh,
         // db_conn: conn.unwrap(),
         username: String::from("docsbot"),
-        // pr_task_sender: tx,
-        // pr_task_receiver: rx,
     });
 
     let addr:SocketAddr = ([0, 0, 0, 0], port).into();
@@ -155,6 +153,5 @@ async fn main() {
     });
 
     handle_pr_task(ctx.clone(), rx).await;
-    // pr_handler.join().expect("oops! pr task thread panicked");
 }
 

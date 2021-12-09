@@ -36,9 +36,9 @@ pub async fn handle(
             match event {
                 Event::PullRequest( e) => {
                     log::info!("send event {:?}", e);
-                    // if e.is_closed_and_merged() {
+                    if e.is_closed_and_merged() {
                         sender.send(e.clone()).unwrap();
-                    // }
+                    }
                 }
                 _ => {
                     log::debug!("skipping event");
@@ -58,8 +58,6 @@ pub struct Context {
     pub github: GithubClient,
     // pub db_conn: Connection,
     pub username: String,
-    // pub pr_task_sender: mpsc::Sender<PullRequestEvent>,
-    // pub pr_task_receiver: mpsc::Receiver<PullRequestEvent>,
 }
 
 pub async fn handle_pr_task(

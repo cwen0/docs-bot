@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 use dialoguer::PasswordInput;
 use git2::Error;
 use git2::{Repository, Branch, BranchType, Index, Tree, Commit};
@@ -185,6 +186,18 @@ impl Git {
 
         self.commit_tree(&repo, &result_tree, msg, &[&head_commit]).unwrap();
 
+        Ok(())
+    }
+
+    pub fn commit_by_command(
+        &self,
+        repo_dir: &str,
+        msg: &str,
+    ) -> anyhow::Result<()> {
+        Command::new("git")
+            .current_dir(repo_dir)
+            .args(&["commit", "-m", msg, "-s"])
+            .output().expect("failed to execute git commit");
         Ok(())
     }
 

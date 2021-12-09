@@ -128,12 +128,13 @@ fn cherry_pick(
     index.add_all(["."].iter(), IndexAddOption::DEFAULT, None).unwrap();
     index.write().unwrap();
 
-    gt.commit_index(
-        &repo,
-        &mut index,
-        format!("sync to {}", config.target_directory)
-            .as_str())
-        .unwrap();
+    // gt.commit_index(
+    //     &repo,
+    //     &mut index,
+    //     format!("sync to {}", config.target_directory)
+    //         .as_str())
+    //     .unwrap();
+    gt.commit_by_command(repo_dir, format!("sync to {}", config.target_directory).as_str()).unwrap();
 
     gt.push_branch(&repo, target_branch, "origin").unwrap();
 
