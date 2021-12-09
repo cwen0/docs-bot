@@ -107,22 +107,25 @@ fn cherry_pick(
 
     gt.checkout(&repo, target_branch).unwrap();
 
-    for (file, _diff) in file_diff.iter() {
-        let path = Path::new(file);
-        log::info!("file: {:?}", file);
-        if path.starts_with(&config.source_directory) {
-            let source_file_path = Path::new(repo_dir).join(path);
+    for sync_path in config.sync_paths.iter() {
+        for (file, _diff) in file_diff.iter() {
+            let path = Path::new(file);
+            log::info!("file: {:?}", file);
+            if path.starts_with(&sync_path.source_directory) {
+                let source_file_path = Path::new(repo_dir).join(path);
 
-            let base_file = path.strip_prefix(&config.source_directory).unwrap();
-            let target_file_path = Path::new(repo_dir)
-                .join(&config.target_directory)
-                .join(base_file);
+                let base_file = path.strip_prefix(&sync_path.source_directory).unwrap();
+                let target_file_path = Path::new(repo_dir)
+                    .join(&sync_path.target_directory)
+                    .join(base_file);
 
-            log::info!("copy {:?} to {:?}", source_file_path, target_file_path);
+                log::info!("copy {:?} to {:?}", source_file_path, target_file_path);
 
-            fs::copy(source_file_path, target_file_path).unwrap();
+                fs::copy(source_file_path, target_file_path).unwrap();
+            }
         }
     }
+
 
     let mut index = repo.index().expect("cannot get the Index file");
     index.add_all(["."].iter(), IndexAddOption::DEFAULT, None).unwrap();
@@ -134,7 +137,7 @@ fn cherry_pick(
     //     format!("sync to {}", config.target_directory)
     //         .as_str())
     //     .unwrap();
-    gt.commit_by_command(repo_dir, format!("sync to {}", config.target_directory).as_str()).unwrap();
+    gt.commit_by_command(repo_dir, format!("sync to {}", config.label).as_str()).unwrap();
 
     gt.push_branch(&repo, target_branch, "origin").unwrap();
 

@@ -29,6 +29,11 @@ pub struct RepoConfig {
 pub struct LabelConfig {
     pub label: String,
     pub base_branch: String,
+    pub sync_paths: Vec<SyncPath>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, serde::Deserialize)]
+pub struct SyncPath {
     pub source_directory: String,
     pub source_sidebars: String,
     pub target_directory: String,
